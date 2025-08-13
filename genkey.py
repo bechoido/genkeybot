@@ -1,46 +1,42 @@
-import hashlib
-import json
+import base64
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import padding
 
-# Giả định phiên bản app, thay bằng import nếu bạn có module riêng
-APP_VERSION = "1.0.3"
+# AES secret key
+SECRET = b"111222333444555X"  # 16 bytes
 
-# Hàm sinh key từ seed
+# Padding cho AES
+def pad(data: bytes) -> bytes:
+    padder = padding.PKCS7(128).padder()
+    return padder.update(data) + padder.finalize()
+
+# Hàm sinh key từ seed bằng AES-ECB
 def generate_key(seed: str) -> str:
-    hashed = hashlib.sha256(seed.encode()).digest()
-    return hashed[:8].hex().upper()
+    cipher = Cipher(algorithms.AES(SECRET), modes.ECB(), backend=default_backend())
+    encryptor = cipher.encryptor()
+    padded_data = pad(seed.encode())
+    encrypted = encryptor.update(padded_data) + encryptor.finalize()
+    return base64.b64encode(encrypted).decode()
 
 # Xử lý lệnh /genkey
 async def genkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("❌ Vui lòng nhập đúng định dạng:\n/genkey <pc_name> <seed>")
+    if not context.args:
+        await update.message.reply_text("❌ Vui lòng nhập seed:\n/genkey <seed>")
         return
 
-    pc_name = context.args[0].strip()
-    seed = context.args[1].strip()
-
+    seed = context.args[0].strip().upper()
     try:
         key = generate_key(seed)
-        license_entry = {
-            "pc_name": pc_name,
-            "seed": seed,
-            "key": key,
-            "app_version": APP_VERSION,
-            "note": "App của bạn đã hết hạn, liên hệ Admin"
-        }
-
-        json_text = json.dumps(license_entry, indent=2, ensure_ascii=False)
-        await update.message.reply_text(f"```json\n{json_text}\n```", parse_mode="Markdown")
-
+        await update.message.reply_text(f"🔑 Key: {key}")
     except Exception as e:
         await update.message.reply_text(f"❌ Lỗi khi tạo key: {e}")
 
 # Main
 if __name__ == "__main__":
-    # Thay bằng token bạn nhận từ BotFather
     TOKEN = "8233111404:AAGd_lU0dsKIIi_5w8BDSjj5_jy89fVwqEw"
-
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("genkey", genkey_command))
     app.run_polling()
