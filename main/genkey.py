@@ -1,6 +1,6 @@
 import base64
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
@@ -21,16 +21,12 @@ def generate_key(seed: str) -> str:
     encrypted = encryptor.update(padded_data) + encryptor.finalize()
     return base64.b64encode(encrypted).decode()
 
-# Xử lý lệnh /genkey
-async def genkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Vui lòng nhập seed:\n/genkey <seed>")
-        return
-
-    seed = context.args[0].strip().upper()
+# Xử lý mọi tin nhắn
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    seed = update.message.text.strip().upper()
     try:
         key = generate_key(seed)
-        await update.message.reply_text(f"🔑 Key: {key}")
+        await update.message.reply_text(f"{key}")
     except Exception as e:
         await update.message.reply_text(f"❌ Lỗi khi tạo key: {e}")
 
@@ -38,5 +34,5 @@ async def genkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == "__main__":
     TOKEN = "8233111404:AAGd_lU0dsKIIi_5w8BDSjj5_jy89fVwqEw"
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("genkey", genkey_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
