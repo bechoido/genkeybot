@@ -3,15 +3,17 @@ import json
 import hashlib
 from datetime import datetime
 from cryptography.fernet import Fernet
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from flask import Flask, request, jsonify
 
-# === Crypto key (phải giống với license_manager.py) ===
+# =============================================================
+# Config
+# =============================================================
 AES_KEY = b'IPvFoQKYZS7yTERTArJSI4U3qbb5TQgGqqmGKbzR-yg='
 FERNET = Fernet(AES_KEY)
 
 LICENSE_SCHEMA_V3 = 3
-LICENSE_DAYS_DEFAULT = 30
+LICENSE_DAYS_DEFAULT = 10  # mặc định 10 ngày
+APP_VERSION = "1.6.0"      # version cố định do admin quy định
 
 # =============================================================
 # Utils
@@ -21,9 +23,6 @@ def pc_hash(pc_name: str) -> str:
     h = hashlib.sha256(pc_name.upper().encode()).hexdigest()
     return h[:12].upper()
 
-# =============================================================
-# V3 license logic
-# =============================================================
 def make_v3_payload(pc_name: str, days: int = LICENSE_DAYS_DEFAULT,
                     issued: str = None, app_version: str = None) -> dict:
     if issued is None:
@@ -45,45 +44,64 @@ def encode_v3_key(payload: dict) -> str:
     token = FERNET.encrypt(blob).decode()
     return f"V3.{token}"
 
-def admin_make_v3_key(pc_name: str, days: int, app_version: str) -> str:
-    payload = make_v3_payload(pc_name=pc_name, days=days, app_version=app_version)
+def admin_make_v3_key(pc_name: str) -> str:
+    payload = make_v3_payload(pc_name=pc_name,
+                              days=LICENSE_DAYS_DEFAULT,
+                              app_version=APP_VERSION)
     return encode_v3_key(payload)
 
 # =============================================================
-# Telegram Bot handlers
+# Flask API
 # =============================================================
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    parts = text.split()
+app = Flask(__name__)
 
-    if len(parts) < 3:
-        await update.message.reply_text("❌ Vui lòng nhập: PCNAME DAYS APP_VERSION\nVí dụ: LAPTOP123 5 1.6.0")
-        return
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "message": "License API is running",
+        "usage": "POST /generate_key or /teams_webhook",
+        "format": "/genkey <PCNAME>"
+    })
 
-    pc_name = parts[0]
-
-    # Parse days
+@app.route("/generate_key", methods=["POST"])
+def generate_key():
+    """
+    Endpoint chính để Power Automate gọi.
+    Body JSON: {"message": "/genkey Desktop123"}
+    """
     try:
-        days = int(parts[1])
-    except ValueError:
-        await update.message.reply_text("❌ Số ngày không hợp lệ, dùng mặc định 30 ngày.")
-        days = LICENSE_DAYS_DEFAULT
+        data = request.get_json(force=True)
+        message = data.get("message", "").strip()
 
-    # App version (admin nhập vào)
-    app_version = parts[2]
+        if not message.lower().startswith("/genkey"):
+            return jsonify({
+                "status": "error",
+                "message": "Sai cú pháp. Dùng: /genkey <PCNAME>"
+            }), 400
 
-    try:
-        key = admin_make_v3_key(pc_name, days=days, app_version=app_version)
-        msg = f"{key}"
-        await update.message.reply_text(msg)
+        parts = message.split()
+        if len(parts) < 2:
+            return jsonify({
+                "status": "error",
+                "message": "Thiếu PC name. Ví dụ: /genkey LAPTOP123"
+            }), 400
+
+        pc_name = parts[1].strip()
+
+        key = admin_make_v3_key(pc_name)
+        return jsonify({
+            "status": "ok",
+            "pc_name": pc_name,
+            "days": LICENSE_DAYS_DEFAULT,
+            "app_version": APP_VERSION,
+            "key": key
+        })
+
     except Exception as e:
-        await update.message.reply_text(f"❌ Lỗi khi tạo key: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # =============================================================
-# Main
+# Main (local run)
 # =============================================================
 if __name__ == "__main__":
-    TOKEN = "8233111404:AAGd_lU0dsKIIi_5w8BDSjj5_jy89fVwqEw"
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
