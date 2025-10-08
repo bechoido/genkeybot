@@ -13,7 +13,7 @@ FERNET = Fernet(AES_KEY)
 
 LICENSE_SCHEMA_V3 = 3
 LICENSE_DAYS_DEFAULT = 10  # mặc định 10 ngày
-APP_VERSION = "1.6.0"      # version cố định do admin quy định
+APP_VERSION = "1.8.0"      # version cố định do admin quy định
 
 # =============================================================
 # Utils
