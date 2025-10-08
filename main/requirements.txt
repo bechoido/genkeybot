@@ -1,2 +1,2 @@
-python-telegram-bot==20.7
+flask
 cryptography==42.0.7
